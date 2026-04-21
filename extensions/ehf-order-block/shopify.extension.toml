@@ -10,6 +10,9 @@ handle = "ehf-order-block"
 module = "./src/OrderBlock.tsx"
 target = "admin.order-details.block.render"
 
+[extensions.capabilities]
+network_access = true
+
 [build]
 env_vars = [
   # Set APP_URL to your Render URL before deploying, e.g.:
