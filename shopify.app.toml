@@ -1,30 +1,22 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "ebef52fb42a2a17842e29a3cabb4235a"
 name = "ehf-manager"
-client_id = "REPLACE_WITH_YOUR_CLIENT_ID"
-application_url = "https://REPLACE.onrender.com"
+application_url = "https://ehf-manager.onrender.com"
 embedded = true
-pos.embedded = false
+
+[webhooks]
+api_version = "2026-07"
 
 [access_scopes]
 scopes = "read_orders,write_orders"
 
 [auth]
 redirect_urls = [
-  "https://REPLACE.onrender.com/auth/callback",
-  "https://REPLACE.onrender.com/auth/shopify/callback",
-  "https://REPLACE.onrender.com/api/auth/callback"
+  "https://ehf-manager.onrender.com/auth/callback",
+  "https://ehf-manager.onrender.com/auth/shopify/callback",
+  "https://ehf-manager.onrender.com/api/auth/callback"
 ]
 
-[webhooks]
-api_version = "2024-10"
-
-[app_proxy]
-url = "https://REPLACE.onrender.com/proxy"
-subpath = "ehf"
-prefix = "apps"
-
-[build]
-automatically_update_urls_on_dev = true
-dev_store_url = "REPLACE.myshopify.com"
-
-[dev]
-resource = { url = "https://REPLACE.onrender.com" }
+[pos]
+embedded = false

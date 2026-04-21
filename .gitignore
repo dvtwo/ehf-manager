@@ -9,3 +9,4 @@ public/build/
 .shopify/
 extensions/*/node_modules/
 extensions/*/build/
+extensions/*/dist/
