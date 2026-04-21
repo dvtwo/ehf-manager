@@ -4,7 +4,7 @@
   "scripts": {
     "build": "remix vite:build",
     "dev": "shopify app dev",
-    "start": "remix-serve ./build/server/index.js",
+    "start": "tsx server.ts",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma db push --accept-data-loss",
     "db:seed": "npx tsx prisma/seed.ts",

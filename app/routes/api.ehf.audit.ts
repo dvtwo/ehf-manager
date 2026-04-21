@@ -4,8 +4,9 @@ import { saveEhfApplication, type ApplyLineItemInput } from "../ehf.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "*",
+  "Access-Control-Max-Age": "86400",
 };
 
 // POST /api/ehf/audit — stores audit log written by the extension after a successful order edit.
