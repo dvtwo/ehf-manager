@@ -5,8 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "jsx": "react",
-    "jsxImportSource": "react",
+    "jsx": "react-jsx",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true
