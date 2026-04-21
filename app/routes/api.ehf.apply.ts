@@ -107,21 +107,34 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
-  const { shop, orderId, lineItems } = body;
+  const { shop: rawShop, orderId, lineItems } = body;
 
-  if (!shop || !orderId || !Array.isArray(lineItems)) {
+  if (!rawShop || !orderId || !Array.isArray(lineItems)) {
     return json(
       { error: "shop, orderId, and lineItems are required." },
       { status: 400, headers: CORS_HEADERS }
     );
   }
 
-  const { admin, session } = await unauthenticated.admin(shop);
+  // Strip protocol if present, e.g. "https://store.myshopify.com" → "store.myshopify.com"
+  const shop = rawShop.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
   // Normalize to full GID — extension may return a numeric ID
   const orderGid = orderId.startsWith("gid://")
     ? orderId
     : `gid://shopify/Order/${orderId}`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let adminCtx: any;
+  try {
+    adminCtx = await unauthenticated.admin(shop);
+  } catch (e) {
+    return json(
+      { error: `Auth failed for shop "${shop}" / orderId "${orderId}": ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500, headers: CORS_HEADERS }
+    );
+  }
+  const { admin, session } = adminCtx;
 
   const chargedItems = lineItems.filter((i) => i.chargeEhf);
   const totalAmountCents = chargedItems.reduce(
