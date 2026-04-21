@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
+import { unauthenticated } from "../shopify.server";
 import {
   saveEhfApplication,
   EHF_LINE_ITEM_TITLE,
@@ -91,10 +91,10 @@ export async function action({ request }: ActionFunctionArgs) {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  const { admin, session } = await authenticate.admin(request);
-
   let body: {
+    shop: string;
     orderId: string;
+    provinceCode?: string;
     lineItems: ApplyLineItemInput[];
   };
 
@@ -107,14 +107,16 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
-  const { orderId, lineItems } = body;
+  const { shop, orderId, lineItems } = body;
 
-  if (!orderId || !Array.isArray(lineItems)) {
+  if (!shop || !orderId || !Array.isArray(lineItems)) {
     return json(
-      { error: "orderId and lineItems are required." },
+      { error: "shop, orderId, and lineItems are required." },
       { status: 400, headers: CORS_HEADERS }
     );
   }
+
+  const { admin, session } = await unauthenticated.admin(shop);
 
   const chargedItems = lineItems.filter((i) => i.chargeEhf);
   const totalAmountCents = chargedItems.reduce(
@@ -257,7 +259,7 @@ export async function action({ request }: ActionFunctionArgs) {
     orderId,
     orderName,
     shopDomain: session.shop,
-    provinceCode: (body as { provinceCode?: string }).provinceCode ?? "",
+    provinceCode: body.provinceCode ?? "",
     totalAmountCents,
     lineBreakdown: lineItems,
     shopifyLineItemId: newLineItemId,

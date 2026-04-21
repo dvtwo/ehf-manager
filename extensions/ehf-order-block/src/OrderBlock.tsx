@@ -74,45 +74,6 @@ const GET_ORDER = `
   }
 `;
 
-const ORDER_EDIT_BEGIN = `
-  mutation OrderEditBegin($id: ID!) {
-    orderEditBegin(id: $id) {
-      calculatedOrder {
-        id
-        lineItems(first: 100) { edges { node { id title } } }
-      }
-      userErrors { field message }
-    }
-  }
-`;
-
-const ORDER_EDIT_SET_QTY = `
-  mutation OrderEditSetQty($id: ID!, $lineItemId: ID!, $quantity: Int!) {
-    orderEditSetLineItemQuantity(id: $id, lineItemId: $lineItemId, quantity: $quantity) {
-      calculatedOrder { id }
-      userErrors { field message }
-    }
-  }
-`;
-
-const ORDER_EDIT_ADD_CUSTOM = `
-  mutation OrderEditAddCustomItem($id: ID!, $title: String!, $quantity: Int!, $price: MoneyInput!, $taxable: Boolean!) {
-    orderEditAddCustomItem(id: $id, title: $title, quantity: $quantity, price: $price, taxable: $taxable) {
-      calculatedLineItem { id }
-      calculatedOrder { id }
-      userErrors { field message }
-    }
-  }
-`;
-
-const ORDER_EDIT_COMMIT = `
-  mutation OrderEditCommit($id: ID!, $notifyCustomer: Boolean!, $staffNote: String) {
-    orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {
-      order { id name }
-      userErrors { field message }
-    }
-  }
-`;
 
 function EHFBlock() {
   const api = useApi("admin.order-details.block.render");
@@ -217,50 +178,28 @@ function EHFBlock() {
       setErrorMsg(null);
       setSuccessMsg(null);
 
-      const { data: beginData, errors: beginErrors } = await query(ORDER_EDIT_BEGIN, { variables: { id: orderInfo.orderId } });
-      if (beginErrors?.length) throw new Error(beginErrors[0].message);
-      const beginResult = (beginData as any).orderEditBegin;
-      if (beginResult.userErrors?.length) throw new Error(beginResult.userErrors[0].message);
-
-      const calcOrderId: string = beginResult.calculatedOrder.id;
-      const existingEhfLine = beginResult.calculatedOrder.lineItems.edges.find((e: any) => e.node.title === EHF_TITLE);
-
-      if (existingEhfLine) {
-        const { data: removeData } = await query(ORDER_EDIT_SET_QTY, {
-          variables: { id: calcOrderId, lineItemId: existingEhfLine.node.id, quantity: 0 },
-        });
-        const removeErrors = (removeData as any).orderEditSetLineItemQuantity?.userErrors;
-        if (removeErrors?.length) throw new Error(removeErrors[0].message);
-      }
-
-      if (totalCents > 0) {
-        const { data: addData } = await query(ORDER_EDIT_ADD_CUSTOM, {
-          variables: { id: calcOrderId, title: EHF_TITLE, quantity: 1, price: { amount: (totalCents / 100).toFixed(2), currencyCode: "CAD" }, taxable: false },
-        });
-        const addErrors = (addData as any).orderEditAddCustomItem?.userErrors;
-        if (addErrors?.length) throw new Error(addErrors[0].message);
-      }
-
-      const { data: commitData } = await query(ORDER_EDIT_COMMIT, {
-        variables: { id: calcOrderId, notifyCustomer: false, staffNote: totalCents > 0 ? `EHF applied: $${(totalCents / 100).toFixed(2)} CAD` : "EHF removed." },
-      });
-      const commitErrors = (commitData as any).orderEditCommit?.userErrors;
-      if (commitErrors?.length) throw new Error(commitErrors[0].message);
-
-      fetch(`${APP_URL}/api/ehf/audit`, {
+      const res = await fetch(`${APP_URL}/api/ehf/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop: orderInfo.shop, orderId: orderInfo.orderId, orderName: orderInfo.orderName, provinceCode: orderInfo.provinceCode, totalAmountCents: totalCents, lineBreakdown: lineItems }),
-      }).catch(() => {});
+        body: JSON.stringify({
+          shop: orderInfo.shop,
+          orderId: orderInfo.orderId,
+          provinceCode: orderInfo.provinceCode,
+          lineItems,
+        }),
+      });
 
-      setSuccessMsg(`${fmt(totalCents)} EHF ${existingApp ? "updated" : "applied"} on ${orderInfo.orderName}.`);
+      const result = await res.json() as any;
+      if (!res.ok || result.error) throw new Error(result.error ?? `HTTP ${res.status}`);
+
+      setSuccessMsg(`${fmt(result.totalAmountCents ?? totalCents)} EHF ${existingApp ? "updated" : "applied"} on ${orderInfo.orderName}.`);
       await loadData();
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to apply EHF.");
     } finally {
       setSaving(false);
     }
-  }, [orderInfo, totalCents, lineItems, existingApp, query, loadData]);
+  }, [orderInfo, totalCents, lineItems, existingApp, loadData]);
 
   if (loading) {
     return (
