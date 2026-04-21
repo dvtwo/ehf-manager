@@ -2,7 +2,7 @@
 
 client_id = "ebef52fb42a2a17842e29a3cabb4235a"
 name = "ehf-manager"
-application_url = "https://ehf-manager.onrender.com"
+application_url = "https://ehf-manager.onrender.com/app"
 embedded = true
 
 [webhooks]
