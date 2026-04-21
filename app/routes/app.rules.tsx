@@ -63,6 +63,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: `SKU ${sku} removed.` });
     }
 
+    if (intent === "add-rate") {
+      const provinceCode = (form.get("provinceCode") as string)?.trim().toUpperCase();
+      const provinceName = (form.get("provinceName") as string)?.trim();
+      const categoryId = parseInt(form.get("categoryId") as string, 10);
+      const amountCents = Math.round(parseFloat(form.get("amount") as string) * 100);
+      if (!provinceCode || !categoryId) throw new Error("Province and category are required.");
+      if (isNaN(amountCents) || amountCents < 0) throw new Error("Invalid amount.");
+      await prisma.ehfRate.upsert({
+        where: { provinceCode_categoryId: { provinceCode, categoryId } },
+        update: { amountCents, provinceName, isActive: true },
+        create: { provinceCode, provinceName, categoryId, amountCents, isActive: true },
+      });
+      return json({ success: `Rate added for ${provinceName} (${provinceCode}).` });
+    }
+
     if (intent === "update-rate") {
       const id = parseInt(form.get("id") as string, 10);
       const amountCents = Math.round(
@@ -75,6 +90,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         data: { amountCents },
       });
       return json({ success: "Rate updated." });
+    }
+
+    if (intent === "delete-rate") {
+      const id = parseInt(form.get("id") as string, 10);
+      await prisma.ehfRate.delete({ where: { id } });
+      return json({ success: "Rate removed." });
     }
 
     if (intent === "add-category") {
@@ -90,6 +111,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return json({ error: (e as Error).message }, { status: 422 });
   }
 };
+
+const PROVINCES = [
+  { code: "AB", name: "Alberta" },
+  { code: "BC", name: "British Columbia" },
+  { code: "MB", name: "Manitoba" },
+  { code: "NB", name: "New Brunswick" },
+  { code: "NL", name: "Newfoundland and Labrador" },
+  { code: "NS", name: "Nova Scotia" },
+  { code: "NT", name: "Northwest Territories" },
+  { code: "NU", name: "Nunavut" },
+  { code: "ON", name: "Ontario" },
+  { code: "PE", name: "Prince Edward Island" },
+  { code: "QC", name: "Quebec" },
+  { code: "SK", name: "Saskatchewan" },
+  { code: "YT", name: "Yukon" },
+];
 
 function cents(n: number) {
   return (n / 100).toFixed(2);
@@ -107,6 +144,11 @@ export default function RulesPage() {
   // Category form
   const [newCatName, setNewCatName] = useState("");
   const [newCatDesc, setNewCatDesc] = useState("");
+
+  // Add rate form
+  const [newProvinceCode, setNewProvinceCode] = useState("");
+  const [newRateCategoryId, setNewRateCategoryId] = useState("");
+  const [newRateAmount, setNewRateAmount] = useState("");
 
   // Rate editing
   const [editingRateId, setEditingRateId] = useState<number | null>(null);
@@ -145,6 +187,30 @@ export default function RulesPage() {
       setEditingRateAmount("");
     },
     [editingRateAmount, submit]
+  );
+
+  const handleAddRate = useCallback(() => {
+    if (!newProvinceCode || !newRateCategoryId || !newRateAmount) return;
+    const province = PROVINCES.find((p) => p.code === newProvinceCode);
+    submit(
+      {
+        intent: "add-rate",
+        provinceCode: newProvinceCode,
+        provinceName: province?.name ?? newProvinceCode,
+        categoryId: newRateCategoryId,
+        amount: newRateAmount,
+      },
+      { method: "post" }
+    );
+    setNewRateAmount("");
+  }, [newProvinceCode, newRateCategoryId, newRateAmount, submit]);
+
+  const handleDeleteRate = useCallback(
+    (id: number) => {
+      if (!confirm("Remove this rate?")) return;
+      submit({ intent: "delete-rate", id: String(id) }, { method: "post" });
+    },
+    [submit]
   );
 
   const handleAddCategory = useCallback(() => {
@@ -239,50 +305,102 @@ export default function RulesPage() {
               a rate configured will return $0.00 (no EHF charged).
             </Text>
 
-            <DataTable
-              columnContentTypes={["text", "text", "text", "text", "text"]}
-              headings={["Province", "Category", "Amount (CAD)", "Active", "Actions"]}
-              rows={rates.map((r) => [
-                `${r.provinceName} (${r.provinceCode})`,
-                r.category.name,
-                editingRateId === r.id ? (
-                  <InlineStack gap="200" key={r.id}>
-                    <div style={{ width: 80 }}>
-                      <TextField
-                        label=""
-                        value={editingRateAmount}
-                        onChange={setEditingRateAmount}
-                        prefix="$"
-                        autoComplete="off"
-                        autoFocus
-                      />
-                    </div>
-                    <Button size="slim" onClick={() => handleUpdateRate(r.id)}>Save</Button>
-                    <Button size="slim" variant="plain" onClick={() => setEditingRateId(null)}>Cancel</Button>
-                  </InlineStack>
-                ) : (
-                  `$${cents(r.amountCents)}`
-                ),
-                r.isActive ? (
-                  <Badge tone="success" key={r.id + "a"}>Active</Badge>
-                ) : (
-                  <Badge key={r.id + "i"}>Inactive</Badge>
-                ),
-                editingRateId !== r.id ? (
-                  <Button
-                    key={r.id + "-edit"}
-                    size="slim"
-                    variant="plain"
-                    onClick={() => {
-                      setEditingRateId(r.id);
-                      setEditingRateAmount(cents(r.amountCents));
-                    }}
-                  >
-                    Edit
-                  </Button>
-                ) : null,
-              ])}
-            />
+            <InlineStack gap="300" blockAlignment="end">
+              <div style={{ flex: 1 }}>
+                <Select
+                  label="Province"
+                  options={[
+                    { label: "Select province…", value: "" },
+                    ...PROVINCES.map((p) => ({ label: `${p.name} (${p.code})`, value: p.code })),
+                  ]}
+                  value={newProvinceCode}
+                  onChange={setNewProvinceCode}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Select
+                  label="Category"
+                  options={[{ label: "Select category…", value: "" }, ...categoryOptions]}
+                  value={newRateCategoryId}
+                  onChange={setNewRateCategoryId}
+                />
+              </div>
+              <div style={{ width: 120 }}>
+                <TextField
+                  label="Amount (CAD)"
+                  value={newRateAmount}
+                  onChange={setNewRateAmount}
+                  prefix="$"
+                  autoComplete="off"
+                  placeholder="0.00"
+                />
+              </div>
+              <Button variant="primary" onClick={handleAddRate}>
+                Add Rate
+              </Button>
+            </InlineStack>
+
+            <Divider />
+
+            {rates.length === 0 ? (
+              <EmptyState heading="No rates configured yet" image="">
+                <p>Add province/category rates above to enable EHF calculation.</p>
+              </EmptyState>
+            ) : (
+              <DataTable
+                columnContentTypes={["text", "text", "text", "text", "text"]}
+                headings={["Province", "Category", "Amount (CAD)", "Active", "Actions"]}
+                rows={rates.map((r) => [
+                  `${r.provinceName} (${r.provinceCode})`,
+                  r.category.name,
+                  editingRateId === r.id ? (
+                    <InlineStack gap="200" key={r.id}>
+                      <div style={{ width: 80 }}>
+                        <TextField
+                          label=""
+                          value={editingRateAmount}
+                          onChange={setEditingRateAmount}
+                          prefix="$"
+                          autoComplete="off"
+                          autoFocus
+                        />
+                      </div>
+                      <Button size="slim" onClick={() => handleUpdateRate(r.id)}>Save</Button>
+                      <Button size="slim" variant="plain" onClick={() => setEditingRateId(null)}>Cancel</Button>
+                    </InlineStack>
+                  ) : (
+                    `$${cents(r.amountCents)}`
+                  ),
+                  r.isActive ? (
+                    <Badge tone="success" key={r.id + "a"}>Active</Badge>
+                  ) : (
+                    <Badge key={r.id + "i"}>Inactive</Badge>
+                  ),
+                  <InlineStack gap="200" key={r.id + "-actions"}>
+                    {editingRateId !== r.id && (
+                      <Button
+                        size="slim"
+                        variant="plain"
+                        onClick={() => {
+                          setEditingRateId(r.id);
+                          setEditingRateAmount(cents(r.amountCents));
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    )}
+                    <Button
+                      size="slim"
+                      variant="plain"
+                      tone="critical"
+                      onClick={() => handleDeleteRate(r.id)}
+                    >
+                      Remove
+                    </Button>
+                  </InlineStack>,
+                ])}
+              />
+            )}
           </BlockStack>
         </Card>
 
