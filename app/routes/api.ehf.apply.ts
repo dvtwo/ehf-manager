@@ -118,6 +118,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const { admin, session } = await unauthenticated.admin(shop);
 
+  // Normalize to full GID — extension may return a numeric ID
+  const orderGid = orderId.startsWith("gid://")
+    ? orderId
+    : `gid://shopify/Order/${orderId}`;
+
   const chargedItems = lineItems.filter((i) => i.chargeEhf);
   const totalAmountCents = chargedItems.reduce(
     (sum, i) => sum + i.appliedAmountCents,
@@ -126,7 +131,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   // ── Step 1: Begin order edit ─────────────────────────────────────────────
   const beginRes = await admin.graphql(ORDER_EDIT_BEGIN, {
-    variables: { id: orderId },
+    variables: { id: orderGid },
   });
   const beginData = await beginRes.json();
   const beginErrors = beginData?.data?.orderEditBegin?.userErrors;
@@ -232,7 +237,7 @@ export async function action({ request }: ActionFunctionArgs) {
       variables: {
         metafields: [
           {
-            ownerId: orderId,
+            ownerId: orderGid,
             namespace: "ehf_manager",
             key: "line_breakdown",
             type: "json",
