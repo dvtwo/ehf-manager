@@ -106,6 +106,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ success: `Category "${name}" created.` });
     }
 
+    if (intent === "delete-category") {
+      const id = parseInt(form.get("id") as string, 10);
+      await prisma.ehfCategory.delete({ where: { id } });
+      return json({ success: "Category deleted." });
+    }
+
     return json({ error: "Unknown intent." }, { status: 400 });
   } catch (e: unknown) {
     return json({ error: (e as Error).message }, { status: 422 });
@@ -209,6 +215,14 @@ export default function RulesPage() {
     (id: number) => {
       if (!confirm("Remove this rate?")) return;
       submit({ intent: "delete-rate", id: String(id) }, { method: "post" });
+    },
+    [submit]
+  );
+
+  const handleDeleteCategory = useCallback(
+    (id: number, name: string) => {
+      if (!confirm(`Delete category "${name}"? This will also remove all province rates for this category.`)) return;
+      submit({ intent: "delete-category", id: String(id) }, { method: "post" });
     },
     [submit]
   );
@@ -439,11 +453,20 @@ export default function RulesPage() {
             <Divider />
 
             <DataTable
-              columnContentTypes={["text", "text"]}
-              headings={["Category", "Description"]}
+              columnContentTypes={["text", "text", "text"]}
+              headings={["Category", "Description", "Actions"]}
               rows={categories.map((c) => [
                 c.name,
                 c.description ?? "—",
+                <Button
+                  key={c.id}
+                  size="slim"
+                  variant="plain"
+                  tone="critical"
+                  onClick={() => handleDeleteCategory(c.id, c.name)}
+                >
+                  Delete
+                </Button>,
               ])}
             />
           </BlockStack>
