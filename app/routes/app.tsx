@@ -10,7 +10,12 @@ import { authenticate } from "../shopify.server";
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  try {
+    await authenticate.admin(request);
+  } catch (e) {
+    console.error("[EHF auth error]", e);
+    throw e;
+  }
   return json({ apiKey: process.env.SHOPIFY_API_KEY || "" });
 };
 
@@ -32,7 +37,15 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  return boundary.error(error);
+  const msg = error instanceof Error ? error.message : String(error);
+  console.error("[EHF boundary]", error);
+  return (
+    <div style={{ padding: "2rem", fontFamily: "monospace" }}>
+      <h2>Application Error</h2>
+      <pre style={{ background: "#fee", padding: "1rem", whiteSpace: "pre-wrap" }}>{msg}</pre>
+      {boundary.error(error)}
+    </div>
+  );
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
