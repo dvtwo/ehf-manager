@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: ehf-manager
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm ci && npm run setup && npm run build
+    startCommand: npm run start
+    healthCheckPath: /app
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ehf-manager-db
+          property: connectionString
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: SHOPIFY_APP_URL
+        sync: false
+      - key: SCOPES
+        value: read_orders,write_orders
+
+databases:
+  - name: ehf-manager-db
+    databaseName: ehf_manager
+    user: ehf_manager
+    plan: starter
+    region: oregon

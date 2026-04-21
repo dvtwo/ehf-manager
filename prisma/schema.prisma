@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Shopify session storage (required by @shopify/shopify-app-session-storage-prisma)
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+// EHF product categories (e.g. "Laptop", "Monitor", "Printer")
+model EhfCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  rates       EhfRate[]
+  skuMappings SkuCategoryMapping[]
+}
+
+// EHF fee per province + category combination, stored in cents (CAD)
+model EhfRate {
+  id            Int         @id @default(autoincrement())
+  provinceCode  String      @db.Char(2)
+  provinceName  String
+  categoryId    Int
+  amountCents   Int
+  isActive      Boolean     @default(true)
+  effectiveDate DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  category EhfCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([provinceCode, categoryId])
+  @@index([provinceCode])
+}
+
+// Maps a SKU to an EHF product category
+model SkuCategoryMapping {
+  id         Int         @id @default(autoincrement())
+  sku        String      @unique
+  categoryId Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  category EhfCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([sku])
+}
+
+// One record per order — tracks the applied combined EHF line item
+model EhfApplication {
+  id                Int      @id @default(autoincrement())
+  orderId           String   @unique
+  orderName         String?
+  shopDomain        String
+  provinceCode      String   @db.Char(2)
+  totalAmountCents  Int
+  lineBreakdown     Json
+  shopifyLineItemId String?
+  appliedBy         String?
+  appliedAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  overrideLogs EhfOverrideLog[]
+
+  @@index([shopDomain])
+  @@index([appliedAt])
+}
+
+// Audit log — one row per line item per application, flags overrides
+model EhfOverrideLog {
+  id                    Int      @id @default(autoincrement())
+  applicationId         Int
+  orderId               String
+  lineItemId            String
+  sku                   String?
+  productTitle          String?
+  provinceCode          String   @db.Char(2)
+  calculatedAmountCents Int
+  appliedAmountCents    Int
+  isOverride            Boolean  @default(false)
+  overrideReason        String?
+  staffUser             String?
+  appliedAt             DateTime @default(now())
+
+  application EhfApplication @relation(fields: [applicationId], references: [id])
+
+  @@index([orderId])
+  @@index([appliedAt])
+}

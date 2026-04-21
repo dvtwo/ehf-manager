@@ -1,0 +1,25 @@
+api_version = "2024-10"
+
+[[extensions]]
+uid = "8a36d50b-1c3a-d314-152d-b917495f71807240bc52"
+type = "ui_extension"
+name = "EHF Order Block"
+handle = "ehf-order-block"
+
+  [[extensions.targeting]]
+  module = "./src/OrderBlock.tsx"
+  target = "admin.order-details.block.render"
+
+[build]
+# Set APP_URL to your Render web service URL before running `shopify app deploy`.
+# Example: shopify app env set APP_URL=https://ehf-manager.onrender.com
+env_vars = [
+  { env_var = "APP_URL", default = "https://REPLACE.onrender.com" }
+]
+
+[build]
+env_vars = [
+  # Set APP_URL to your Render URL before deploying, e.g.:
+  #   shopify app env set APP_URL=https://your-app.onrender.com
+  { env_var = "APP_URL", default = "https://REPLACE.onrender.com" }
+]
