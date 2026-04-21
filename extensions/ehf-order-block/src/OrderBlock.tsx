@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
 import {
   reactExtension,
   useApi,
   BlockStack,
-  InlineStack,
   Text,
   Button,
   Banner,
   ProgressIndicator,
+  InlineStack,
   Divider,
   Box,
   Checkbox,
@@ -15,8 +14,11 @@ import {
   TextArea,
   Badge,
 } from "@shopify/ui-extensions-react/admin";
+import React, { useState, useEffect, useCallback } from "react";
 
-const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
+const APP_URL = typeof process !== "undefined" && process.env?.APP_URL
+  ? process.env.APP_URL.replace(/\/$/, "")
+  : "https://ehf-manager.onrender.com";
 
 const EHF_TITLE = "Environmental Handling Fee";
 
@@ -24,8 +26,6 @@ export default reactExtension(
   "admin.order-details.block.render",
   () => <EHFBlock />
 );
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface OrderInfo {
   orderId: string;
@@ -61,22 +61,13 @@ interface ExistingApplication {
   }[];
 }
 
-// ── GraphQL ───────────────────────────────────────────────────────────────────
-
 const GET_ORDER = `
   query GetOrderForEhf($id: ID!) {
     order(id: $id) {
       name
       shippingAddress { provinceCode province }
       lineItems(first: 100) {
-        edges {
-          node {
-            id
-            title
-            quantity
-            variant { sku }
-          }
-        }
+        edges { node { id title quantity sku } }
       }
     }
     shop { myshopifyDomain }
@@ -88,9 +79,7 @@ const ORDER_EDIT_BEGIN = `
     orderEditBegin(id: $id) {
       calculatedOrder {
         id
-        lineItems(first: 100) {
-          edges { node { id title } }
-        }
+        lineItems(first: 100) { edges { node { id title } } }
       }
       userErrors { field message }
     }
@@ -107,20 +96,8 @@ const ORDER_EDIT_SET_QTY = `
 `;
 
 const ORDER_EDIT_ADD_CUSTOM = `
-  mutation OrderEditAddCustomItem(
-    $id: ID!
-    $title: String!
-    $quantity: Int!
-    $price: MoneyInput!
-    $taxable: Boolean!
-  ) {
-    orderEditAddCustomItem(
-      id: $id
-      title: $title
-      quantity: $quantity
-      price: $price
-      taxable: $taxable
-    ) {
+  mutation OrderEditAddCustomItem($id: ID!, $title: String!, $quantity: Int!, $price: MoneyInput!, $taxable: Boolean!) {
+    orderEditAddCustomItem(id: $id, title: $title, quantity: $quantity, price: $price, taxable: $taxable) {
       calculatedLineItem { id }
       calculatedOrder { id }
       userErrors { field message }
@@ -137,11 +114,10 @@ const ORDER_EDIT_COMMIT = `
   }
 `;
 
-// ── Root block ────────────────────────────────────────────────────────────────
-
 function EHFBlock() {
-  const { data, query } = useApi("admin.order-details.block.render");
-  const orderId = data.selected?.[0]?.id;
+  const api = useApi("admin.order-details.block.render");
+  const orderId = api.data.selected?.[0]?.id;
+  const query = api.query;
 
   const [orderInfo, setOrderInfo] = useState<OrderInfo | null>(null);
   const [lineItems, setLineItems] = useState<LineItemState[]>([]);
@@ -157,9 +133,7 @@ function EHFBlock() {
       setLoading(true);
       setErrorMsg(null);
 
-      const { data: gqlData, errors: gqlErrors } = await query(GET_ORDER, {
-        variables: { id: orderId },
-      });
+      const { data: gqlData, errors: gqlErrors } = await query(GET_ORDER, { variables: { id: orderId } });
       if (gqlErrors?.length) throw new Error(gqlErrors[0].message);
 
       const order = (gqlData as any).order;
@@ -167,17 +141,16 @@ function EHFBlock() {
       const provinceCode: string = order.shippingAddress?.provinceCode?.toUpperCase() ?? "";
       const province: string = order.shippingAddress?.province ?? provinceCode;
 
-      const rawItems: { id: string; title: string; sku: string; quantity: number }[] =
-        order.lineItems.edges
-          .filter((e: any) => e.node.title !== EHF_TITLE)
-          .map((e: any) => ({
-            id: e.node.id,
-            title: e.node.title,
-            sku: e.node.variant?.sku ?? "",
-            quantity: e.node.quantity,
-          }));
+      const rawItems = order.lineItems.edges
+        .filter((e: any) => e.node.title !== EHF_TITLE)
+        .map((e: any) => ({
+          id: e.node.id,
+          title: e.node.title,
+          sku: e.node.sku ?? "",
+          quantity: e.node.quantity,
+        }));
 
-      const skus = rawItems.map((i) => i.sku).filter(Boolean).join(",");
+      const skus = rawItems.map((i: any) => i.sku).filter(Boolean).join(",");
       const ratesRes = await fetch(
         `${APP_URL}/api/ehf/rates?province=${encodeURIComponent(provinceCode)}&orderId=${encodeURIComponent(orderId)}&skus=${encodeURIComponent(skus)}`
       );
@@ -190,7 +163,7 @@ function EHFBlock() {
       const prevMap = new Map(
         (ratesData.existingApplication?.lineBreakdown ?? []).map((p) => [p.lineItemId, p])
       );
-      const items: LineItemState[] = rawItems.map((item) => {
+      const items: LineItemState[] = rawItems.map((item: any) => {
         const rate = ratesData.rates?.[item.sku] ?? { amountCents: 0, categoryName: null };
         const prev = prevMap.get(item.id);
         return {
@@ -201,11 +174,7 @@ function EHFBlock() {
           suggestedAmountCents: rate.amountCents,
           categoryName: rate.categoryName,
           chargeEhf: prev ? prev.chargeEhf : rate.amountCents > 0,
-          appliedAmountCents: prev
-            ? prev.isOverride
-              ? prev.appliedAmountCents
-              : rate.amountCents
-            : rate.amountCents,
+          appliedAmountCents: prev ? (prev.isOverride ? prev.appliedAmountCents : rate.amountCents) : rate.amountCents,
           isOverride: prev?.isOverride ?? false,
           overrideReason: prev?.overrideReason ?? "",
         };
@@ -221,19 +190,13 @@ function EHFBlock() {
     }
   }, [orderId, query]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const updateItem = useCallback((id: string, patch: Partial<LineItemState>) => {
-    setLineItems((prev) =>
-      prev.map((item) => (item.lineItemId === id ? { ...item, ...patch } : item))
-    );
+    setLineItems((prev) => prev.map((item) => item.lineItemId === id ? { ...item, ...patch } : item));
   }, []);
 
-  const totalCents = lineItems
-    .filter((i) => i.chargeEhf)
-    .reduce((s, i) => s + i.appliedAmountCents, 0);
+  const totalCents = lineItems.filter((i) => i.chargeEhf).reduce((s, i) => s + i.appliedAmountCents, 0);
 
   const handleApply = useCallback(async () => {
     if (!orderInfo) return;
@@ -242,17 +205,13 @@ function EHFBlock() {
       setErrorMsg(null);
       setSuccessMsg(null);
 
-      const { data: beginData, errors: beginErrors } = await query(ORDER_EDIT_BEGIN, {
-        variables: { id: orderInfo.orderId },
-      });
+      const { data: beginData, errors: beginErrors } = await query(ORDER_EDIT_BEGIN, { variables: { id: orderInfo.orderId } });
       if (beginErrors?.length) throw new Error(beginErrors[0].message);
       const beginResult = (beginData as any).orderEditBegin;
       if (beginResult.userErrors?.length) throw new Error(beginResult.userErrors[0].message);
 
       const calcOrderId: string = beginResult.calculatedOrder.id;
-      const existingEhfLine = beginResult.calculatedOrder.lineItems.edges.find(
-        (e: any) => e.node.title === EHF_TITLE
-      );
+      const existingEhfLine = beginResult.calculatedOrder.lineItems.edges.find((e: any) => e.node.title === EHF_TITLE);
 
       if (existingEhfLine) {
         const { data: removeData } = await query(ORDER_EDIT_SET_QTY, {
@@ -264,27 +223,14 @@ function EHFBlock() {
 
       if (totalCents > 0) {
         const { data: addData } = await query(ORDER_EDIT_ADD_CUSTOM, {
-          variables: {
-            id: calcOrderId,
-            title: EHF_TITLE,
-            quantity: 1,
-            price: { amount: (totalCents / 100).toFixed(2), currencyCode: "CAD" },
-            taxable: false,
-          },
+          variables: { id: calcOrderId, title: EHF_TITLE, quantity: 1, price: { amount: (totalCents / 100).toFixed(2), currencyCode: "CAD" }, taxable: false },
         });
         const addErrors = (addData as any).orderEditAddCustomItem?.userErrors;
         if (addErrors?.length) throw new Error(addErrors[0].message);
       }
 
       const { data: commitData } = await query(ORDER_EDIT_COMMIT, {
-        variables: {
-          id: calcOrderId,
-          notifyCustomer: false,
-          staffNote:
-            totalCents > 0
-              ? `EHF applied: $${(totalCents / 100).toFixed(2)} CAD`
-              : "EHF removed from order.",
-        },
+        variables: { id: calcOrderId, notifyCustomer: false, staffNote: totalCents > 0 ? `EHF applied: $${(totalCents / 100).toFixed(2)} CAD` : "EHF removed." },
       });
       const commitErrors = (commitData as any).orderEditCommit?.userErrors;
       if (commitErrors?.length) throw new Error(commitErrors[0].message);
@@ -292,19 +238,10 @@ function EHFBlock() {
       fetch(`${APP_URL}/api/ehf/audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop: orderInfo.shop,
-          orderId: orderInfo.orderId,
-          orderName: orderInfo.orderName,
-          provinceCode: orderInfo.provinceCode,
-          totalAmountCents: totalCents,
-          lineBreakdown: lineItems,
-        }),
+        body: JSON.stringify({ shop: orderInfo.shop, orderId: orderInfo.orderId, orderName: orderInfo.orderName, provinceCode: orderInfo.provinceCode, totalAmountCents: totalCents, lineBreakdown: lineItems }),
       }).catch(() => {});
 
-      setSuccessMsg(
-        `${fmt(totalCents)} EHF ${existingApp ? "updated" : "applied"} on ${orderInfo.orderName}.`
-      );
+      setSuccessMsg(`${fmt(totalCents)} EHF ${existingApp ? "updated" : "applied"} on ${orderInfo.orderName}.`);
       await loadData();
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to apply EHF.");
@@ -312,8 +249,6 @@ function EHFBlock() {
       setSaving(false);
     }
   }, [orderInfo, totalCents, lineItems, existingApp, query, loadData]);
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -339,7 +274,7 @@ function EHFBlock() {
 
   const provinceLabel = orderInfo.provinceCode
     ? `${orderInfo.province} (${orderInfo.provinceCode})`
-    : "No province on file — EHF cannot be auto-calculated";
+    : "No province — EHF cannot be auto-calculated";
 
   return (
     <BlockStack gap="base">
@@ -350,13 +285,10 @@ function EHFBlock() {
         </Badge>
       </InlineStack>
 
-      <Text>Ship-to: {provinceLabel}</Text>
+      <Text>{"Ship-to: " + provinceLabel}</Text>
 
       {existingApp && (
-        <Banner
-          tone="success"
-          title={`${fmt(existingApp.totalAmountCents)} EHF on order${existingApp.appliedBy ? ` · applied by ${existingApp.appliedBy}` : ""}`}
-        />
+        <Banner tone="success" title={`${fmt(existingApp.totalAmountCents)} EHF on order${existingApp.appliedBy ? ` · by ${existingApp.appliedBy}` : ""}`} />
       )}
       {errorMsg && <Banner tone="critical" title={errorMsg} />}
       {successMsg && <Banner tone="success" title={successMsg} />}
@@ -365,18 +297,14 @@ function EHFBlock() {
 
       <BlockStack gap="large">
         {lineItems.map((item) => (
-          <LineItemRow
-            key={item.lineItemId}
-            item={item}
-            onUpdate={(patch) => updateItem(item.lineItemId, patch)}
-          />
+          <LineItemRow key={item.lineItemId} item={item} onUpdate={(patch) => updateItem(item.lineItemId, patch)} />
         ))}
       </BlockStack>
 
       <Divider />
 
       <InlineStack gap="base" blockAlignment="center" inlineAlignment="end">
-        <Text>Total EHF: {fmt(totalCents)}</Text>
+        <Text>{"Total EHF: " + fmt(totalCents)}</Text>
         <Button variant="primary" onPress={handleApply} disabled={saving}>
           {saving ? "Saving…" : existingApp ? "Update EHF" : "Apply EHF"}
         </Button>
@@ -385,63 +313,38 @@ function EHFBlock() {
   );
 }
 
-// ── Per-line-item row ─────────────────────────────────────────────────────────
-
 interface RowProps {
   item: LineItemState;
   onUpdate: (patch: Partial<LineItemState>) => void;
 }
 
 function LineItemRow({ item, onUpdate }: RowProps) {
-  const skuInfo = `SKU: ${item.sku || "—"} · Qty: ${item.quantity}${
-    item.categoryName ? ` · ${item.categoryName}` : " · (no category — set one in EHF Rules)"
-  }`;
+  const skuInfo = `SKU: ${item.sku || "—"} · Qty: ${item.quantity}${item.categoryName ? ` · ${item.categoryName}` : " · (no category)"}`;
 
   return (
     <BlockStack gap="small">
       <Checkbox
         label={item.title}
         checked={item.chargeEhf}
-        onChange={(checked) =>
-          onUpdate({
-            chargeEhf: checked,
-            appliedAmountCents: checked ? item.suggestedAmountCents : 0,
-            isOverride: false,
-          })
-        }
+        onChange={(checked) => onUpdate({ chargeEhf: checked, appliedAmountCents: checked ? item.suggestedAmountCents : 0, isOverride: false })}
       />
       <Text>{skuInfo}</Text>
 
       {item.chargeEhf && (
         <Box paddingInlineStart="large">
           <BlockStack gap="small">
-            <Text>
-              {`Suggested: ${fmt(item.suggestedAmountCents)}${
-                item.suggestedAmountCents === 0 ? " — no rate on file" : ""
-              }`}
-            </Text>
-
+            <Text>{`Suggested: ${fmt(item.suggestedAmountCents)}${item.suggestedAmountCents === 0 ? " — no rate on file" : ""}`}</Text>
             <Checkbox
               label="Override amount"
               checked={item.isOverride}
-              onChange={(checked) =>
-                onUpdate({
-                  isOverride: checked,
-                  appliedAmountCents: checked
-                    ? item.appliedAmountCents
-                    : item.suggestedAmountCents,
-                })
-              }
+              onChange={(checked) => onUpdate({ isOverride: checked, appliedAmountCents: checked ? item.appliedAmountCents : item.suggestedAmountCents })}
             />
-
             {item.isOverride ? (
               <BlockStack gap="small">
                 <NumberField
                   label="Override amount (CAD $)"
                   value={item.appliedAmountCents / 100}
-                  onChange={(v) =>
-                    onUpdate({ appliedAmountCents: Math.max(0, Math.round(v * 100)) })
-                  }
+                  onChange={(v) => onUpdate({ appliedAmountCents: Math.max(0, Math.round(v * 100)) })}
                   min={0}
                 />
                 <TextArea
