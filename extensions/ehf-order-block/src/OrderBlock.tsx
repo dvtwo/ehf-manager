@@ -133,10 +133,17 @@ function EHFBlock() {
       setLoading(true);
       setErrorMsg(null);
 
-      const { data: gqlData, errors: gqlErrors } = await query(GET_ORDER, { variables: { id: orderId } });
-      if (gqlErrors?.length) throw new Error(gqlErrors[0].message);
+      let gqlResult: any;
+      try {
+        gqlResult = await query(GET_ORDER, { variables: { id: orderId } });
+      } catch (e) {
+        throw new Error(`GQL-call: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const { data: gqlData, errors: gqlErrors } = gqlResult;
+      if (gqlErrors?.length) throw new Error(`GQL-err: ${gqlErrors[0].message}`);
 
       const order = (gqlData as any).order;
+      if (!order) throw new Error("GQL-err: order is null");
       const shop: string = (gqlData as any).shop?.myshopifyDomain ?? "";
       const provinceCode: string = order.shippingAddress?.provinceCode?.toUpperCase() ?? "";
       const province: string = order.shippingAddress?.province ?? provinceCode;
@@ -151,10 +158,15 @@ function EHFBlock() {
         }));
 
       const skus = rawItems.map((i: any) => i.sku).filter(Boolean).join(",");
-      const ratesRes = await fetch(
-        `${APP_URL}/api/ehf/rates?province=${encodeURIComponent(provinceCode)}&orderId=${encodeURIComponent(orderId)}&skus=${encodeURIComponent(skus)}`
-      );
-      if (!ratesRes.ok) throw new Error("Could not load EHF rates from server.");
+      let ratesRes: Response;
+      try {
+        ratesRes = await fetch(
+          `${APP_URL}/api/ehf/rates?province=${encodeURIComponent(provinceCode)}&orderId=${encodeURIComponent(orderId)}&skus=${encodeURIComponent(skus)}`
+        );
+      } catch (e) {
+        throw new Error(`Fetch: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (!ratesRes.ok) throw new Error(`HTTP ${ratesRes.status} from rates API`);
       const ratesData: {
         rates: Record<string, { amountCents: number; categoryName: string | null }>;
         existingApplication: ExistingApplication | null;
