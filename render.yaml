@@ -21,7 +21,7 @@ services:
       - key: SHOPIFY_APP_URL
         sync: false
       - key: SCOPES
-        value: read_orders,write_orders,read_products
+        value: read_orders,write_orders,write_order_edits
 
 databases:
   - name: ehf-manager-db
