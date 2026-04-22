@@ -1,0 +1,18 @@
+api_version = "2025-07"
+
+[[extensions]]
+type = "ui_extension"
+name = "EHF Order Action"
+handle = "ehf-order-action"
+
+[[extensions.targeting]]
+module = "./src/EHFAction.tsx"
+target = "admin.order-details.action.render"
+
+[extensions.capabilities]
+network_access = true
+
+[build]
+env_vars = [
+  { env_var = "APP_URL", default = "https://ehf-manager.onrender.com" }
+]
