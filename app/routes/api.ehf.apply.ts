@@ -52,10 +52,12 @@ const ORDER_EDIT_BEGIN = `#graphql
         id
         lineItems(first: 100) {
           edges {
-            node {
-              id
-              title
-            }
+            node { id title }
+          }
+        }
+        shippingLines(first: 20) {
+          edges {
+            node { id title }
           }
         }
       }
@@ -73,24 +75,19 @@ const ORDER_EDIT_SET_QTY = `#graphql
   }
 `;
 
-const ORDER_EDIT_ADD_CUSTOM = `#graphql
-  mutation OrderEditAddCustomItem(
-    $id: ID!
-    $title: String!
-    $quantity: Int!
-    $price: MoneyInput!
-    $taxable: Boolean!
-    $requiresShipping: Boolean!
-  ) {
-    orderEditAddCustomItem(
-      id: $id
-      title: $title
-      quantity: $quantity
-      price: $price
-      taxable: $taxable
-      requiresShipping: $requiresShipping
-    ) {
-      calculatedLineItem { id }
+const ORDER_EDIT_ADD_SHIPPING_LINE = `#graphql
+  mutation OrderEditAddShippingLine($id: ID!, $shippingLine: OrderEditShippingLineInput!) {
+    orderEditAddShippingLine(id: $id, shippingLine: $shippingLine) {
+      calculatedOrder { id }
+      calculatedShippingLine { id }
+      userErrors { field message }
+    }
+  }
+`;
+
+const ORDER_EDIT_REMOVE_SHIPPING_LINE = `#graphql
+  mutation OrderEditRemoveShippingLine($id: ID!, $shippingLineId: ID!) {
+    orderEditRemoveShippingLine(id: $id, shippingLineId: $shippingLineId) {
       calculatedOrder { id }
       userErrors { field message }
     }
@@ -101,37 +98,6 @@ const ORDER_EDIT_COMMIT = `#graphql
   mutation OrderEditCommit($id: ID!, $notifyCustomer: Boolean!, $staffNote: String) {
     orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {
       order { id name }
-      userErrors { field message }
-    }
-  }
-`;
-
-const ORDER_FULFILLMENT_ORDERS = `#graphql
-  query OrderFulfillmentOrders($id: ID!) {
-    order(id: $id) {
-      fulfillmentOrders(first: 20) {
-        edges {
-          node {
-            id
-            status
-            lineItems(first: 20) {
-              edges {
-                node {
-                  lineItem { title }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const FULFILLMENT_CREATE = `#graphql
-  mutation FulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
-    fulfillmentCreateV2(fulfillment: $fulfillment) {
-      fulfillment { id status }
       userErrors { field message }
     }
   }
@@ -239,55 +205,64 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const calculatedOrderId: string = calculatedOrder.id;
 
-  // ── Step 2: Remove existing EHF line item if present ────────────────────
+  // ── Step 2: Remove any legacy EHF custom line item (old approach) ────────
   const existingEhfLine = calculatedOrder.lineItems?.edges?.find(
     (e: { node: { id: string; title: string } }) =>
       e.node.title === EHF_LINE_ITEM_TITLE
   );
-
   if (existingEhfLine) {
-    const removeData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_SET_QTY, {
+    await shopifyGraphql(shop, accessToken, ORDER_EDIT_SET_QTY, {
       id: calculatedOrderId,
       lineItemId: existingEhfLine.node.id,
       quantity: 0,
     });
-    const removeErrors =
-      removeData?.data?.orderEditSetLineItemQuantity?.userErrors;
+  }
+
+  // ── Step 3: Remove existing EHF shipping line if present ────────────────
+  const existingEhfShippingLine = calculatedOrder.shippingLines?.edges?.find(
+    (e: { node: { id: string; title: string } }) =>
+      e.node.title === EHF_LINE_ITEM_TITLE
+  );
+  if (existingEhfShippingLine) {
+    const removeData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_REMOVE_SHIPPING_LINE, {
+      id: calculatedOrderId,
+      shippingLineId: existingEhfShippingLine.node.id,
+    });
+    const removeErrors = removeData?.data?.orderEditRemoveShippingLine?.userErrors;
     if (removeErrors?.length) {
-      console.error("EHF remove errors:", removeErrors);
-      // Non-fatal — continue to add the new line item
+      console.error("EHF shipping line remove errors:", removeErrors);
     }
   }
 
-  // ── Step 3: Add combined EHF line item (only if total > 0) ───────────────
+  // ── Step 4: Add EHF as a shipping line (only if total > 0) ──────────────
+  // Shipping lines appear in the order totals section (below subtotal, above
+  // taxes) rather than as a product SKU, and do not create a fulfillment order.
   let newLineItemId: string | null = null;
 
   if (totalAmountCents > 0) {
-    const addData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_ADD_CUSTOM, {
+    const addData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_ADD_SHIPPING_LINE, {
       id: calculatedOrderId,
-      title: EHF_LINE_ITEM_TITLE,
-      quantity: 1,
-      price: { amount: (totalAmountCents / 100).toFixed(2), currencyCode: "CAD" },
-      taxable: false,
-      requiresShipping: false,
+      shippingLine: {
+        title: EHF_LINE_ITEM_TITLE,
+        price: { amount: (totalAmountCents / 100).toFixed(2), currencyCode: "CAD" },
+      },
     });
     const addTopErr = extractGqlErrors(addData?.errors);
     if (addTopErr) {
-      return json({ error: `orderEditAddCustomItem: ${addTopErr}` }, { status: 422, headers: CORS_HEADERS });
+      return json({ error: `orderEditAddShippingLine: ${addTopErr}` }, { status: 422, headers: CORS_HEADERS });
     }
-    const addErrors = addData?.data?.orderEditAddCustomItem?.userErrors;
-
+    const addErrors = addData?.data?.orderEditAddShippingLine?.userErrors;
     if (addErrors?.length) {
       return json(
-        { error: `orderEditAddCustomItem: ${addErrors.map((e: { message: string }) => e.message).join("; ")}` },
+        { error: `orderEditAddShippingLine: ${addErrors.map((e: { message: string }) => e.message).join("; ")}` },
         { status: 422, headers: CORS_HEADERS }
       );
     }
     newLineItemId =
-      addData?.data?.orderEditAddCustomItem?.calculatedLineItem?.id ?? null;
+      addData?.data?.orderEditAddShippingLine?.calculatedShippingLine?.id ?? null;
   }
 
-  // ── Step 4: Commit ────────────────────────────────────────────────────────
+  // ── Step 5: Commit ────────────────────────────────────────────────────────
   const staffNote =
     totalAmountCents > 0
       ? `EHF applied: $${(totalAmountCents / 100).toFixed(2)} CAD`
@@ -313,29 +288,6 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const orderName: string =
     commitData?.data?.orderEditCommit?.order?.name ?? "";
-
-  // ── Step 5: Auto-fulfill the EHF fulfillment order ───────────────────────
-  // orderEditAddCustomItem always creates a fulfillment line even with
-  // requiresShipping:false. Marking it fulfilled removes it from the
-  // "Unfulfilled" section so it doesn't look like a shippable product.
-  if (totalAmountCents > 0) {
-    const foData = await shopifyGraphql(shop, accessToken, ORDER_FULFILLMENT_ORDERS, { id: orderGid });
-    const foEdges = foData?.data?.order?.fulfillmentOrders?.edges ?? [];
-    const ehfFo = foEdges.find((e: any) =>
-      e.node.status === "OPEN" &&
-      e.node.lineItems?.edges?.some(
-        (li: any) => li.node.lineItem?.title === EHF_LINE_ITEM_TITLE
-      )
-    );
-    if (ehfFo) {
-      await shopifyGraphql(shop, accessToken, FULFILLMENT_CREATE, {
-        fulfillment: {
-          lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: ehfFo.node.id }],
-          notifyCustomer: false,
-        },
-      });
-    }
-  }
 
   // ── Step 6: Store breakdown in order metafield ────────────────────────────
   if (totalAmountCents > 0) {
