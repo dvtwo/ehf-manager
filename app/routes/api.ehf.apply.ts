@@ -144,6 +144,7 @@ export async function action({ request }: ActionFunctionArgs) {
     0
   );
 
+  try {
   // ── Step 1: Begin order edit ─────────────────────────────────────────────
   const beginRes = await admin.graphql(ORDER_EDIT_BEGIN, {
     variables: { id: orderGid },
@@ -313,4 +314,11 @@ export async function action({ request }: ActionFunctionArgs) {
     },
     { headers: CORS_HEADERS }
   );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return json(
+      { error: `Unexpected error: ${msg}` },
+      { status: 500, headers: CORS_HEADERS }
+    );
+  }
 }
