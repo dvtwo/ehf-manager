@@ -1,0 +1,14 @@
+{
+  "name": "ehf-order-action",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@shopify/ui-extensions": "2025.7.4",
+    "@shopify/ui-extensions-react": "2025.7.4",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.55",
+    "typescript": "^5.5.0"
+  }
+}
