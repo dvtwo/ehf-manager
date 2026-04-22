@@ -283,8 +283,6 @@ interface RowProps {
 }
 
 function LineItemRow({ item, categories, onUpdate }: RowProps) {
-  const skuInfo = `SKU: ${item.sku || "—"} · Qty: ${item.quantity}`;
-
   const categoryOptions = [
     { value: "", label: "— select category —" },
     ...categories.map((c) => ({ value: c.id, label: c.name })),
@@ -303,17 +301,40 @@ function LineItemRow({ item, categories, onUpdate }: RowProps) {
     });
   }
 
+  const chargeAmount = item.isOverride ? item.appliedAmountCents : item.suggestedAmountCents;
+  const metaParts = [
+    `${item.sku || "—"} ×${item.quantity}`,
+    item.categoryName ?? null,
+    item.chargeEhf ? fmt(chargeAmount) : null,
+  ].filter(Boolean).join(" · ");
+
   return (
-    <BlockStack gap="small">
+    <BlockStack gap="extraSmall">
+      {/* Line 1: toggle + title */}
       <Checkbox
         label={item.title}
         checked={item.chargeEhf}
-        onChange={(checked) => onUpdate({ chargeEhf: checked, appliedAmountCents: checked ? item.suggestedAmountCents : 0, isOverride: false })}
+        onChange={(checked) =>
+          onUpdate({ chargeEhf: checked, appliedAmountCents: checked ? item.suggestedAmountCents : 0, isOverride: false })
+        }
       />
-      <Text>{skuInfo}</Text>
-      {item.categoryName ? (
-        <Text>{`Category: ${item.categoryName}`}</Text>
-      ) : (
+
+      {/* Line 2: SKU · category · amount — override toggle on the right */}
+      <InlineStack gap="small" blockAlignment="center" inlineAlignment="space-between">
+        <Text tone="subdued">{metaParts}</Text>
+        {item.chargeEhf && (
+          <Checkbox
+            label="Override"
+            checked={item.isOverride}
+            onChange={(checked) =>
+              onUpdate({ isOverride: checked, appliedAmountCents: checked ? item.appliedAmountCents : item.suggestedAmountCents })
+            }
+          />
+        )}
+      </InlineStack>
+
+      {/* Category selector — only when unknown */}
+      {!item.categoryName && (
         <Select
           label="Category"
           value={item.selectedCategoryId ?? ""}
@@ -322,35 +343,22 @@ function LineItemRow({ item, categories, onUpdate }: RowProps) {
         />
       )}
 
-      {item.chargeEhf && (
-        <Box paddingInlineStart="large">
-          <BlockStack gap="small">
-            <Text>{`Suggested: ${fmt(item.suggestedAmountCents)}${item.suggestedAmountCents === 0 ? " — no rate on file" : ""}`}</Text>
-            <Checkbox
-              label="Override amount"
-              checked={item.isOverride}
-              onChange={(checked) => onUpdate({ isOverride: checked, appliedAmountCents: checked ? item.appliedAmountCents : item.suggestedAmountCents })}
-            />
-            {item.isOverride ? (
-              <BlockStack gap="small">
-                <NumberField
-                  label="Override amount (CAD $)"
-                  value={item.appliedAmountCents / 100}
-                  onChange={(v) => onUpdate({ appliedAmountCents: Math.max(0, Math.round(v * 100)) })}
-                  min={0}
-                />
-                <TextArea
-                  label="Override reason (required)"
-                  value={item.overrideReason}
-                  onChange={(v) => onUpdate({ overrideReason: v })}
-                  rows={2}
-                />
-              </BlockStack>
-            ) : (
-              <Text>{`Will charge: ${fmt(item.suggestedAmountCents)}`}</Text>
-            )}
-          </BlockStack>
-        </Box>
+      {/* Override fields — only when active */}
+      {item.isOverride && (
+        <BlockStack gap="extraSmall">
+          <NumberField
+            label="Override amount (CAD $)"
+            value={item.appliedAmountCents / 100}
+            onChange={(v) => onUpdate({ appliedAmountCents: Math.max(0, Math.round(v * 100)) })}
+            min={0}
+          />
+          <TextArea
+            label="Override reason (required)"
+            value={item.overrideReason}
+            onChange={(v) => onUpdate({ overrideReason: v })}
+            rows={2}
+          />
+        </BlockStack>
       )}
     </BlockStack>
   );
