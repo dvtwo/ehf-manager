@@ -17,6 +17,13 @@ function extractGqlErrors(errors: unknown): string | null {
   return String(errors);
 }
 
+async function deleteEhfApplication(orderId: string) {
+  const app = await prisma.ehfApplication.findUnique({ where: { orderId } });
+  if (!app) return;
+  await prisma.ehfOverrideLog.deleteMany({ where: { applicationId: app.id } });
+  await prisma.ehfApplication.delete({ where: { id: app.id } });
+}
+
 async function shopifyGraphql(
   shop: string,
   accessToken: string,
@@ -205,7 +212,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
     // Always delete the DB record so the badge resets to Pending.
-    await prisma.ehfApplication.deleteMany({ where: { orderId } });
+    await deleteEhfApplication(orderId);
     return json({ success: true, totalAmountCents: 0, orderName: "" }, { headers: CORS_HEADERS });
   }
 
@@ -329,7 +336,7 @@ export async function action({ request }: ActionFunctionArgs) {
   if (totalAmountCents === 0) {
     // Remove the record so existingApplication returns null and the badge
     // correctly shows "Pending" instead of "EHF Applied".
-    await prisma.ehfApplication.deleteMany({ where: { orderId } });
+    await deleteEhfApplication(orderId);
   } else {
     await saveEhfApplication({
       orderId,
