@@ -55,10 +55,9 @@ const ORDER_EDIT_BEGIN = `#graphql
             node { id title }
           }
         }
-        shippingLines(first: 20) {
-          edges {
-            node { id title }
-          }
+        shippingLines {
+          id
+          title
         }
       }
       userErrors { field message }
@@ -219,14 +218,12 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   // ── Step 3: Remove existing EHF shipping line if present ────────────────
-  const existingEhfShippingLine = calculatedOrder.shippingLines?.edges?.find(
-    (e: { node: { id: string; title: string } }) =>
-      e.node.title === EHF_LINE_ITEM_TITLE
-  );
+  const existingEhfShippingLine = (calculatedOrder.shippingLines as { id: string; title: string }[] ?? [])
+    .find((sl) => sl.title === EHF_LINE_ITEM_TITLE);
   if (existingEhfShippingLine) {
     const removeData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_REMOVE_SHIPPING_LINE, {
       id: calculatedOrderId,
-      shippingLineId: existingEhfShippingLine.node.id,
+      shippingLineId: existingEhfShippingLine.id,
     });
     const removeErrors = removeData?.data?.orderEditRemoveShippingLine?.userErrors;
     if (removeErrors?.length) {
