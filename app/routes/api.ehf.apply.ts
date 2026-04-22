@@ -178,10 +178,34 @@ export async function action({ request }: ActionFunctionArgs) {
   );
 
   try {
-  // ── Fast path: nothing to charge and nothing on the order to remove ───────
-  // Check the DB record first to avoid an unnecessary order edit round-trip.
-  const existingRecord = await prisma.ehfApplication.findUnique({ where: { orderId } });
-  if (totalAmountCents === 0 && !existingRecord) {
+  // ── $0 path: remove any lingering EHF lines and clear the DB record ───────
+  // Runs regardless of whether EHF lines exist on the order — always resets
+  // the badge to Pending. No commit needed if nothing was found to remove.
+  if (totalAmountCents === 0) {
+    const beginData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_BEGIN, { id: orderGid });
+    const calculatedOrder = beginData?.data?.orderEditBegin?.calculatedOrder;
+    if (calculatedOrder) {
+      const ehfLines = (calculatedOrder.lineItems?.edges ?? []).filter(
+        (e: { node: { id: string; title: string } }) =>
+          e.node.title.startsWith(EHF_LINE_ITEM_TITLE)
+      );
+      if (ehfLines.length > 0) {
+        for (const line of ehfLines) {
+          await shopifyGraphql(shop, accessToken, ORDER_EDIT_SET_QTY, {
+            id: calculatedOrder.id,
+            lineItemId: line.node.id,
+            quantity: 0,
+          });
+        }
+        await shopifyGraphql(shop, accessToken, ORDER_EDIT_COMMIT, {
+          id: calculatedOrder.id,
+          notifyCustomer: false,
+          staffNote: "EHF removed from order.",
+        });
+      }
+    }
+    // Always delete the DB record so the badge resets to Pending.
+    await prisma.ehfApplication.deleteMany({ where: { orderId } });
     return json({ success: true, totalAmountCents: 0, orderName: "" }, { headers: CORS_HEADERS });
   }
 
@@ -206,7 +230,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const calculatedOrderId: string = calculatedOrder.id;
 
-  // ── Step 2: Remove ALL existing EHF line items (prev edits may have left multiples) ──
+  // ── Step 2: Remove ALL existing EHF line items ───────────────────────────
   const existingEhfLines = (calculatedOrder.lineItems?.edges ?? []).filter(
     (e: { node: { id: string; title: string } }) =>
       e.node.title.startsWith(EHF_LINE_ITEM_TITLE)
@@ -217,13 +241,6 @@ export async function action({ request }: ActionFunctionArgs) {
       lineItemId: line.node.id,
       quantity: 0,
     });
-  }
-
-  // If nothing on the order to change and nothing to add, skip commit and
-  // just clean up the DB record so the badge resets.
-  if (existingEhfLines.length === 0 && totalAmountCents === 0) {
-    await prisma.ehfApplication.deleteMany({ where: { orderId } });
-    return json({ success: true, totalAmountCents: 0, orderName: "" }, { headers: CORS_HEADERS });
   }
 
   // ── Step 3: Add EHF custom line item (only if total > 0) ─────────────────
