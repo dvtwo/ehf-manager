@@ -9,6 +9,14 @@ import {
 
 const SHOPIFY_API_VERSION = "2024-10";
 
+function extractGqlErrors(errors: unknown): string | null {
+  if (!errors) return null;
+  if (Array.isArray(errors)) return errors.map((e: any) => e?.message ?? String(e)).join("; ");
+  if (typeof errors === "string") return errors;
+  if (typeof errors === "object") return (errors as any).message ?? JSON.stringify(errors);
+  return String(errors);
+}
+
 async function shopifyGraphql(
   shop: string,
   accessToken: string,
@@ -179,11 +187,9 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
   // ── Step 1: Begin order edit ─────────────────────────────────────────────
   const beginData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_BEGIN, { id: orderGid });
-  if (beginData?.errors?.length) {
-    return json(
-      { error: `orderEditBegin: ${beginData.errors.map((e: { message: string }) => e.message).join("; ")}` },
-      { status: 422, headers: CORS_HEADERS }
-    );
+  const beginTopErr = extractGqlErrors(beginData?.errors);
+  if (beginTopErr) {
+    return json({ error: `orderEditBegin: ${beginTopErr}` }, { status: 422, headers: CORS_HEADERS });
   }
   const beginErrors = beginData?.data?.orderEditBegin?.userErrors;
 
@@ -236,11 +242,9 @@ export async function action({ request }: ActionFunctionArgs) {
       taxable: false,
       requiresShipping: false,
     });
-    if (addData?.errors?.length) {
-      return json(
-        { error: `orderEditAddCustomItem: ${addData.errors.map((e: { message: string }) => e.message).join("; ")}` },
-        { status: 422, headers: CORS_HEADERS }
-      );
+    const addTopErr = extractGqlErrors(addData?.errors);
+    if (addTopErr) {
+      return json({ error: `orderEditAddCustomItem: ${addTopErr}` }, { status: 422, headers: CORS_HEADERS });
     }
     const addErrors = addData?.data?.orderEditAddCustomItem?.userErrors;
 
@@ -265,11 +269,9 @@ export async function action({ request }: ActionFunctionArgs) {
     notifyCustomer: false,
     staffNote,
   });
-  if (commitData?.errors?.length) {
-    return json(
-      { error: `orderEditCommit: ${commitData.errors.map((e: { message: string }) => e.message).join("; ")}` },
-      { status: 422, headers: CORS_HEADERS }
-    );
+  const commitTopErr = extractGqlErrors(commitData?.errors);
+  if (commitTopErr) {
+    return json({ error: `orderEditCommit: ${commitTopErr}` }, { status: 422, headers: CORS_HEADERS });
   }
   const commitErrors = commitData?.data?.orderEditCommit?.userErrors;
 
