@@ -103,37 +103,6 @@ const ORDER_EDIT_COMMIT = `#graphql
   }
 `;
 
-const ORDER_FULFILLMENT_ORDERS = `#graphql
-  query OrderFulfillmentOrders($id: ID!) {
-    order(id: $id) {
-      fulfillmentOrders(first: 20) {
-        edges {
-          node {
-            id
-            status
-            lineItems(first: 20) {
-              edges {
-                node {
-                  lineItem { title }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const FULFILLMENT_CREATE = `#graphql
-  mutation FulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
-    fulfillmentCreateV2(fulfillment: $fulfillment) {
-      fulfillment { id status }
-      userErrors { field message }
-    }
-  }
-`;
-
 // Store breakdown as a metafield on the order for Shopify-side visibility
 const METAFIELDS_SET = `#graphql
   mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
@@ -301,29 +270,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const orderName: string =
     commitData?.data?.orderEditCommit?.order?.name ?? "";
 
-  // ── Step 5: Auto-fulfill the EHF fulfillment order ───────────────────────
-  // requiresShipping:false still creates a fulfillment group. Marking it
-  // fulfilled immediately removes it from the Unfulfilled section.
-  if (totalAmountCents > 0) {
-    const foData = await shopifyGraphql(shop, accessToken, ORDER_FULFILLMENT_ORDERS, { id: orderGid });
-    const foEdges = foData?.data?.order?.fulfillmentOrders?.edges ?? [];
-    const ehfFo = foEdges.find((e: any) =>
-      e.node.status === "OPEN" &&
-      e.node.lineItems?.edges?.some(
-        (li: any) => li.node.lineItem?.title?.startsWith(EHF_LINE_ITEM_TITLE)
-      )
-    );
-    if (ehfFo) {
-      await shopifyGraphql(shop, accessToken, FULFILLMENT_CREATE, {
-        fulfillment: {
-          lineItemsByFulfillmentOrder: [{ fulfillmentOrderId: ehfFo.node.id }],
-          notifyCustomer: false,
-        },
-      });
-    }
-  }
-
-  // ── Step 6: Store breakdown in order metafield ────────────────────────────
+  // ── Step 5: Store breakdown in order metafield ────────────────────────────
   if (totalAmountCents > 0) {
     await shopifyGraphql(shop, accessToken, METAFIELDS_SET, {
       metafields: [
@@ -347,7 +294,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  // ── Step 7: Save audit record in Postgres ─────────────────────────────────
+  // ── Step 6: Save audit record in Postgres ─────────────────────────────────
   await saveEhfApplication({
     orderId,
     orderName,
