@@ -230,26 +230,31 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const calculatedOrderId: string = calculatedOrder.id;
 
-  // ── Step 2: Remove existing EHF line item if present ────────────────────
-  const existingEhfLine = calculatedOrder.lineItems?.edges?.find(
+  // ── Step 2: Remove ALL existing EHF line items (prev edits may have left multiples) ──
+  const existingEhfLines = (calculatedOrder.lineItems?.edges ?? []).filter(
     (e: { node: { id: string; title: string } }) =>
-      e.node.title === EHF_LINE_ITEM_TITLE
+      e.node.title.startsWith(EHF_LINE_ITEM_TITLE)
   );
-  if (existingEhfLine) {
+  for (const line of existingEhfLines) {
     await shopifyGraphql(shop, accessToken, ORDER_EDIT_SET_QTY, {
       id: calculatedOrderId,
-      lineItemId: existingEhfLine.node.id,
+      lineItemId: line.node.id,
       quantity: 0,
     });
   }
 
   // ── Step 3: Add EHF custom line item (only if total > 0) ─────────────────
+  const chargedSkus = chargedItems.map((i) => i.sku).filter(Boolean).join(", ");
+  const ehfTitle = chargedSkus
+    ? `${EHF_LINE_ITEM_TITLE} (${chargedSkus})`
+    : EHF_LINE_ITEM_TITLE;
+
   let newLineItemId: string | null = null;
 
   if (totalAmountCents > 0) {
     const addData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_ADD_CUSTOM, {
       id: calculatedOrderId,
-      title: EHF_LINE_ITEM_TITLE,
+      title: ehfTitle,
       quantity: 1,
       price: { amount: (totalAmountCents / 100).toFixed(2), currencyCode: "CAD" },
       taxable: false,
@@ -305,7 +310,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const ehfFo = foEdges.find((e: any) =>
       e.node.status === "OPEN" &&
       e.node.lineItems?.edges?.some(
-        (li: any) => li.node.lineItem?.title === EHF_LINE_ITEM_TITLE
+        (li: any) => li.node.lineItem?.title?.startsWith(EHF_LINE_ITEM_TITLE)
       )
     );
     if (ehfFo) {
