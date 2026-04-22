@@ -178,6 +178,13 @@ export async function action({ request }: ActionFunctionArgs) {
   );
 
   try {
+  // ── Fast path: nothing to charge and nothing on the order to remove ───────
+  // Check the DB record first to avoid an unnecessary order edit round-trip.
+  const existingRecord = await prisma.ehfApplication.findUnique({ where: { orderId } });
+  if (totalAmountCents === 0 && !existingRecord) {
+    return json({ success: true, totalAmountCents: 0, orderName: "" }, { headers: CORS_HEADERS });
+  }
+
   // ── Step 1: Begin order edit ─────────────────────────────────────────────
   const beginData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_BEGIN, { id: orderGid });
   const beginTopErr = extractGqlErrors(beginData?.errors);
@@ -210,6 +217,13 @@ export async function action({ request }: ActionFunctionArgs) {
       lineItemId: line.node.id,
       quantity: 0,
     });
+  }
+
+  // If nothing on the order to change and nothing to add, skip commit and
+  // just clean up the DB record so the badge resets.
+  if (existingEhfLines.length === 0 && totalAmountCents === 0) {
+    await prisma.ehfApplication.deleteMany({ where: { orderId } });
+    return json({ success: true, totalAmountCents: 0, orderName: "" }, { headers: CORS_HEADERS });
   }
 
   // ── Step 3: Add EHF custom line item (only if total > 0) ─────────────────
