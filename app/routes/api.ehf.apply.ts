@@ -294,17 +294,23 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  // ── Step 6: Save audit record in Postgres ─────────────────────────────────
-  await saveEhfApplication({
-    orderId,
-    orderName,
-    shopDomain: shop,
-    provinceCode: body.provinceCode ?? "",
-    totalAmountCents,
-    lineBreakdown: lineItems,
-    shopifyLineItemId: newLineItemId,
-    appliedBy: staffUser as string | null,
-  });
+  // ── Step 6: Save or delete audit record in Postgres ──────────────────────
+  if (totalAmountCents === 0) {
+    // Remove the record so existingApplication returns null and the badge
+    // correctly shows "Pending" instead of "EHF Applied".
+    await prisma.ehfApplication.deleteMany({ where: { orderId } });
+  } else {
+    await saveEhfApplication({
+      orderId,
+      orderName,
+      shopDomain: shop,
+      provinceCode: body.provinceCode ?? "",
+      totalAmountCents,
+      lineBreakdown: lineItems,
+      shopifyLineItemId: newLineItemId,
+      appliedBy: staffUser as string | null,
+    });
+  }
 
   return json(
     { success: true, totalAmountCents, orderName },
