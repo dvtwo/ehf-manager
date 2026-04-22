@@ -2,7 +2,7 @@
 
 client_id = "ebef52fb42a2a17842e29a3cabb4235a"
 name = "ehf-manager"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://ehf-manager.onrender.com"
 embedded = true
 
 [build]
@@ -17,4 +17,4 @@ api_version = "2026-07"
 scopes = "read_orders,write_orders,write_order_edits"
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [ "https://ehf-manager.onrender.com/api/auth" ]
