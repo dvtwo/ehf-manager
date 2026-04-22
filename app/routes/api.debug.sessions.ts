@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import prisma from "../db.server";
 
@@ -38,4 +38,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
     },
     { headers: CORS }
   );
+}
+
+// DELETE /api/debug/sessions?shop=true49.myshopify.com
+// Flushes all sessions for a shop so the next app open triggers fresh OAuth.
+export async function action({ request }: ActionFunctionArgs) {
+  if (request.method !== "DELETE") {
+    return json({ error: "Method not allowed" }, { status: 405, headers: CORS });
+  }
+  const shop = new URL(request.url).searchParams.get("shop") ?? "";
+  if (!shop) return json({ error: "shop param required" }, { status: 400, headers: CORS });
+
+  const { count } = await prisma.session.deleteMany({ where: { shop } });
+  return json({ deleted: count }, { headers: CORS });
 }
