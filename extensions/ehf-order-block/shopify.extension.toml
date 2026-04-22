@@ -10,6 +10,10 @@ handle = "ehf-order-block"
 module = "./src/OrderBlock.tsx"
 target = "admin.order-details.block.render"
 
+[[extensions.targeting]]
+module = "./src/EHFAction.tsx"
+target = "admin.order-details.action.render"
+
 [extensions.capabilities]
 network_access = true
 
