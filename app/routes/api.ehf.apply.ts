@@ -50,6 +50,7 @@ const ORDER_EDIT_ADD_CUSTOM = `#graphql
     $quantity: Int!
     $price: MoneyInput!
     $taxable: Boolean!
+    $requiresShipping: Boolean!
   ) {
     orderEditAddCustomItem(
       id: $id
@@ -57,6 +58,7 @@ const ORDER_EDIT_ADD_CUSTOM = `#graphql
       quantity: $quantity
       price: $price
       taxable: $taxable
+      requiresShipping: $requiresShipping
     ) {
       calculatedLineItem { id }
       calculatedOrder { id }
@@ -147,11 +149,17 @@ export async function action({ request }: ActionFunctionArgs) {
     variables: { id: orderGid },
   });
   const beginData = await beginRes.json();
+  if (beginData?.errors?.length) {
+    return json(
+      { error: `orderEditBegin: ${beginData.errors.map((e: { message: string }) => e.message).join("; ")}` },
+      { status: 422, headers: CORS_HEADERS }
+    );
+  }
   const beginErrors = beginData?.data?.orderEditBegin?.userErrors;
 
   if (beginErrors?.length) {
     return json(
-      { error: beginErrors.map((e: { message: string }) => e.message).join("; ") },
+      { error: `orderEditBegin: ${beginErrors.map((e: { message: string }) => e.message).join("; ")}` },
       { status: 422, headers: CORS_HEADERS }
     );
   }
@@ -203,14 +211,21 @@ export async function action({ request }: ActionFunctionArgs) {
           currencyCode: "CAD",
         },
         taxable: false,
+        requiresShipping: false,
       },
     });
     const addData = await addRes.json();
+    if (addData?.errors?.length) {
+      return json(
+        { error: `orderEditAddCustomItem: ${addData.errors.map((e: { message: string }) => e.message).join("; ")}` },
+        { status: 422, headers: CORS_HEADERS }
+      );
+    }
     const addErrors = addData?.data?.orderEditAddCustomItem?.userErrors;
 
     if (addErrors?.length) {
       return json(
-        { error: addErrors.map((e: { message: string }) => e.message).join("; ") },
+        { error: `orderEditAddCustomItem: ${addErrors.map((e: { message: string }) => e.message).join("; ")}` },
         { status: 422, headers: CORS_HEADERS }
       );
     }
@@ -232,11 +247,17 @@ export async function action({ request }: ActionFunctionArgs) {
     },
   });
   const commitData = await commitRes.json();
+  if (commitData?.errors?.length) {
+    return json(
+      { error: `orderEditCommit: ${commitData.errors.map((e: { message: string }) => e.message).join("; ")}` },
+      { status: 422, headers: CORS_HEADERS }
+    );
+  }
   const commitErrors = commitData?.data?.orderEditCommit?.userErrors;
 
   if (commitErrors?.length) {
     return json(
-      { error: commitErrors.map((e: { message: string }) => e.message).join("; ") },
+      { error: `orderEditCommit: ${commitErrors.map((e: { message: string }) => e.message).join("; ")}` },
       { status: 422, headers: CORS_HEADERS }
     );
   }
