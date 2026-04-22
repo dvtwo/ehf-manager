@@ -1,11 +1,33 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { unauthenticated } from "../shopify.server";
+import prisma from "../db.server";
 import {
   saveEhfApplication,
   EHF_LINE_ITEM_TITLE,
   type ApplyLineItemInput,
 } from "../ehf.server";
+
+const SHOPIFY_API_VERSION = "2024-10";
+
+async function shopifyGraphql(
+  shop: string,
+  accessToken: string,
+  query: string,
+  variables: Record<string, unknown>
+) {
+  const res = await fetch(
+    `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": accessToken,
+      },
+      body: JSON.stringify({ query, variables }),
+    }
+  );
+  return res.json();
+}
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -126,17 +148,27 @@ export async function action({ request }: ActionFunctionArgs) {
     ? orderId
     : `gid://shopify/Order/${orderId}`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let adminCtx: any;
-  try {
-    adminCtx = await unauthenticated.admin(shop);
-  } catch (e) {
-    return json(
-      { error: `Auth failed for shop "${shop}" / orderId "${orderId}": ${e instanceof Error ? e.message : String(e)}` },
-      { status: 500, headers: CORS_HEADERS }
-    );
+  // Look up the offline session directly from DB — works regardless of auth strategy
+  const session = await prisma.session.findFirst({
+    where: { shop, isOnline: false },
+    orderBy: { id: "desc" },
+  });
+  if (!session?.accessToken) {
+    // Fall back to any session for this shop (e.g. online-only installs)
+    const anySession = await prisma.session.findFirst({
+      where: { shop },
+      orderBy: { id: "desc" },
+    });
+    if (!anySession?.accessToken) {
+      return json(
+        { error: `No session found for ${shop}. Please open the EHF Manager app from your Shopify admin to authorize it.` },
+        { status: 401, headers: CORS_HEADERS }
+      );
+    }
+    Object.assign(session ?? {}, anySession);
   }
-  const { admin, session } = adminCtx;
+  const accessToken = (session as any).accessToken as string;
+  const staffUser = (session as any).email as string | null ?? null;
 
   const chargedItems = lineItems.filter((i) => i.chargeEhf);
   const totalAmountCents = chargedItems.reduce(
@@ -146,10 +178,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
   // ── Step 1: Begin order edit ─────────────────────────────────────────────
-  const beginRes = await admin.graphql(ORDER_EDIT_BEGIN, {
-    variables: { id: orderGid },
-  });
-  const beginData = await beginRes.json();
+  const beginData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_BEGIN, { id: orderGid });
   if (beginData?.errors?.length) {
     return json(
       { error: `orderEditBegin: ${beginData.errors.map((e: { message: string }) => e.message).join("; ")}` },
@@ -182,14 +211,11 @@ export async function action({ request }: ActionFunctionArgs) {
   );
 
   if (existingEhfLine) {
-    const removeRes = await admin.graphql(ORDER_EDIT_SET_QTY, {
-      variables: {
-        id: calculatedOrderId,
-        lineItemId: existingEhfLine.node.id,
-        quantity: 0,
-      },
+    const removeData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_SET_QTY, {
+      id: calculatedOrderId,
+      lineItemId: existingEhfLine.node.id,
+      quantity: 0,
     });
-    const removeData = await removeRes.json();
     const removeErrors =
       removeData?.data?.orderEditSetLineItemQuantity?.userErrors;
     if (removeErrors?.length) {
@@ -202,20 +228,14 @@ export async function action({ request }: ActionFunctionArgs) {
   let newLineItemId: string | null = null;
 
   if (totalAmountCents > 0) {
-    const addRes = await admin.graphql(ORDER_EDIT_ADD_CUSTOM, {
-      variables: {
-        id: calculatedOrderId,
-        title: EHF_LINE_ITEM_TITLE,
-        quantity: 1,
-        price: {
-          amount: (totalAmountCents / 100).toFixed(2),
-          currencyCode: "CAD",
-        },
-        taxable: false,
-        requiresShipping: false,
-      },
+    const addData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_ADD_CUSTOM, {
+      id: calculatedOrderId,
+      title: EHF_LINE_ITEM_TITLE,
+      quantity: 1,
+      price: { amount: (totalAmountCents / 100).toFixed(2), currencyCode: "CAD" },
+      taxable: false,
+      requiresShipping: false,
     });
-    const addData = await addRes.json();
     if (addData?.errors?.length) {
       return json(
         { error: `orderEditAddCustomItem: ${addData.errors.map((e: { message: string }) => e.message).join("; ")}` },
@@ -240,14 +260,11 @@ export async function action({ request }: ActionFunctionArgs) {
       ? `EHF applied: $${(totalAmountCents / 100).toFixed(2)} CAD`
       : "EHF removed from order.";
 
-  const commitRes = await admin.graphql(ORDER_EDIT_COMMIT, {
-    variables: {
-      id: calculatedOrderId,
-      notifyCustomer: false,
-      staffNote,
-    },
+  const commitData = await shopifyGraphql(shop, accessToken, ORDER_EDIT_COMMIT, {
+    id: calculatedOrderId,
+    notifyCustomer: false,
+    staffNote,
   });
-  const commitData = await commitRes.json();
   if (commitData?.errors?.length) {
     return json(
       { error: `orderEditCommit: ${commitData.errors.map((e: { message: string }) => e.message).join("; ")}` },
@@ -268,37 +285,33 @@ export async function action({ request }: ActionFunctionArgs) {
 
   // ── Step 5: Store breakdown in order metafield ────────────────────────────
   if (totalAmountCents > 0) {
-    await admin.graphql(METAFIELDS_SET, {
-      variables: {
-        metafields: [
-          {
-            ownerId: orderGid,
-            namespace: "ehf_manager",
-            key: "line_breakdown",
-            type: "json",
-            value: JSON.stringify(
-              chargedItems.map((i) => ({
-                lineItemId: i.lineItemId,
-                title: i.title,
-                sku: i.sku,
-                appliedAmountCents: i.appliedAmountCents,
-                isOverride: i.isOverride,
-                overrideReason: i.overrideReason,
-              }))
-            ),
-          },
-        ],
-      },
+    await shopifyGraphql(shop, accessToken, METAFIELDS_SET, {
+      metafields: [
+        {
+          ownerId: orderGid,
+          namespace: "ehf_manager",
+          key: "line_breakdown",
+          type: "json",
+          value: JSON.stringify(
+            chargedItems.map((i) => ({
+              lineItemId: i.lineItemId,
+              title: i.title,
+              sku: i.sku,
+              appliedAmountCents: i.appliedAmountCents,
+              isOverride: i.isOverride,
+              overrideReason: i.overrideReason,
+            }))
+          ),
+        },
+      ],
     });
   }
 
   // ── Step 6: Save audit record in Postgres ─────────────────────────────────
-  const staffUser = session.email ?? session.onlineAccessInfo?.associated_user?.email ?? null;
-
   await saveEhfApplication({
     orderId,
     orderName,
-    shopDomain: session.shop,
+    shopDomain: shop,
     provinceCode: body.provinceCode ?? "",
     totalAmountCents,
     lineBreakdown: lineItems,
