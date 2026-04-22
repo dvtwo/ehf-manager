@@ -156,27 +156,25 @@ export async function action({ request }: ActionFunctionArgs) {
     ? orderId
     : `gid://shopify/Order/${orderId}`;
 
-  // Look up the offline session directly from DB — works regardless of auth strategy
-  const session = await prisma.session.findFirst({
-    where: { shop, isOnline: false },
+  // Prefer the most-recently-created online session (unstable_newEmbeddedAuthStrategy creates
+  // these on reinstall), then fall back to offline sessions from traditional OAuth.
+  const allSessions = await prisma.session.findMany({
+    where: { shop },
     orderBy: { id: "desc" },
   });
+  // Online sessions (isOnline=true) from recent installs take priority over revoked offline ones
+  const session =
+    allSessions.find((s) => s.isOnline && s.accessToken) ??
+    allSessions.find((s) => s.accessToken) ??
+    null;
   if (!session?.accessToken) {
-    // Fall back to any session for this shop (e.g. online-only installs)
-    const anySession = await prisma.session.findFirst({
-      where: { shop },
-      orderBy: { id: "desc" },
-    });
-    if (!anySession?.accessToken) {
-      return json(
-        { error: `No session found for ${shop}. Please open the EHF Manager app from your Shopify admin to authorize it.` },
-        { status: 401, headers: CORS_HEADERS }
-      );
-    }
-    Object.assign(session ?? {}, anySession);
+    return json(
+      { error: `No session found for ${shop}. Please open the EHF Manager app from your Shopify admin to authorize it.` },
+      { status: 401, headers: CORS_HEADERS }
+    );
   }
-  const accessToken = (session as any).accessToken as string;
-  const staffUser = (session as any).email as string | null ?? null;
+  const accessToken = session.accessToken;
+  const staffUser = session.email ?? null;
 
   const chargedItems = lineItems.filter((i) => i.chargeEhf);
   const totalAmountCents = chargedItems.reduce(
