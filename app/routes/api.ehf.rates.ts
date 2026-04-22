@@ -63,9 +63,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
       })
     : null;
 
+  const allCategories = await prisma.ehfCategory.findMany({
+    orderBy: { name: "asc" },
+    include: province
+      ? { rates: { where: { provinceCode: province, isActive: true } } }
+      : { rates: false },
+  });
+
+  const categories = allCategories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    rateCents: (c as any).rates?.[0]?.amountCents ?? 0,
+  }));
+
   return json(
     {
       rates,
+      categories,
       existingApplication: existing
         ? { ...existing, appliedAt: (existing.appliedAt as Date).toISOString() }
         : null,

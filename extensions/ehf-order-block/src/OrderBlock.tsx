@@ -13,6 +13,7 @@ import {
   NumberField,
   TextArea,
   Badge,
+  Select,
 } from "@shopify/ui-extensions-react/admin";
 import React, { useState, useEffect, useCallback } from "react";
 
@@ -35,6 +36,12 @@ interface OrderInfo {
   province: string;
 }
 
+interface CategoryOption {
+  id: string;
+  name: string;
+  rateCents: number;
+}
+
 interface LineItemState {
   lineItemId: string;
   title: string;
@@ -42,6 +49,7 @@ interface LineItemState {
   quantity: number;
   suggestedAmountCents: number;
   categoryName: string | null;
+  selectedCategoryId: string | null;
   chargeEhf: boolean;
   appliedAmountCents: number;
   isOverride: boolean;
@@ -82,6 +90,7 @@ function EHFBlock() {
 
   const [orderInfo, setOrderInfo] = useState<OrderInfo | null>(null);
   const [lineItems, setLineItems] = useState<LineItemState[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [existingApp, setExistingApp] = useState<ExistingApplication | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -130,6 +139,7 @@ function EHFBlock() {
       if (!ratesRes.ok) throw new Error(`HTTP ${ratesRes.status} from rates API`);
       const ratesData: {
         rates: Record<string, { amountCents: number; categoryName: string | null }>;
+        categories: CategoryOption[];
         existingApplication: ExistingApplication | null;
       } = await ratesRes.json();
 
@@ -146,6 +156,7 @@ function EHFBlock() {
           quantity: item.quantity,
           suggestedAmountCents: rate.amountCents,
           categoryName: rate.categoryName,
+          selectedCategoryId: null,
           chargeEhf: prev ? prev.chargeEhf : rate.amountCents > 0,
           appliedAmountCents: prev ? (prev.isOverride ? prev.appliedAmountCents : rate.amountCents) : rate.amountCents,
           isOverride: prev?.isOverride ?? false,
@@ -155,6 +166,7 @@ function EHFBlock() {
 
       setOrderInfo({ orderId, orderName: order.name, shop, provinceCode, province });
       setLineItems(items);
+      setCategories(ratesData.categories ?? []);
       setExistingApp(ratesData.existingApplication);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Failed to load EHF data.");
@@ -248,7 +260,7 @@ function EHFBlock() {
 
       <BlockStack gap="large">
         {lineItems.map((item) => (
-          <LineItemRow key={item.lineItemId} item={item} onUpdate={(patch) => updateItem(item.lineItemId, patch)} />
+          <LineItemRow key={item.lineItemId} item={item} categories={categories} onUpdate={(patch) => updateItem(item.lineItemId, patch)} />
         ))}
       </BlockStack>
 
@@ -266,11 +278,30 @@ function EHFBlock() {
 
 interface RowProps {
   item: LineItemState;
+  categories: CategoryOption[];
   onUpdate: (patch: Partial<LineItemState>) => void;
 }
 
-function LineItemRow({ item, onUpdate }: RowProps) {
-  const skuInfo = `SKU: ${item.sku || "—"} · Qty: ${item.quantity}${item.categoryName ? ` · ${item.categoryName}` : " · (no category)"}`;
+function LineItemRow({ item, categories, onUpdate }: RowProps) {
+  const skuInfo = `SKU: ${item.sku || "—"} · Qty: ${item.quantity}`;
+
+  const categoryOptions = [
+    { value: "", label: "— select category —" },
+    ...categories.map((c) => ({ value: c.id, label: c.name })),
+  ];
+
+  function handleCategoryChange(categoryId: string) {
+    if (!categoryId) return;
+    const cat = categories.find((c) => c.id === categoryId);
+    if (!cat) return;
+    onUpdate({
+      selectedCategoryId: categoryId,
+      categoryName: cat.name,
+      suggestedAmountCents: cat.rateCents,
+      appliedAmountCents: item.isOverride ? item.appliedAmountCents : cat.rateCents,
+      chargeEhf: cat.rateCents > 0,
+    });
+  }
 
   return (
     <BlockStack gap="small">
@@ -280,6 +311,16 @@ function LineItemRow({ item, onUpdate }: RowProps) {
         onChange={(checked) => onUpdate({ chargeEhf: checked, appliedAmountCents: checked ? item.suggestedAmountCents : 0, isOverride: false })}
       />
       <Text>{skuInfo}</Text>
+      {item.categoryName ? (
+        <Text>{`Category: ${item.categoryName}`}</Text>
+      ) : (
+        <Select
+          label="Category"
+          value={item.selectedCategoryId ?? ""}
+          options={categoryOptions}
+          onChange={handleCategoryChange}
+        />
+      )}
 
       {item.chargeEhf && (
         <Box paddingInlineStart="large">
